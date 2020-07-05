@@ -1,9 +1,9 @@
 import { getCustomRepository, getRepository } from 'typeorm';
 import AppError from '../errors/AppError';
+import TransactionsRepository from '../repositories/TransactionsRepository';
 
-import Transaction from '../models/Transaction';
-import TransactionRepository from '../repositories/TransactionsRepository';
 import Category from '../models/Category';
+import Transaction from '../models/Transaction';
 
 interface Request {
   title: string;
@@ -15,41 +15,43 @@ interface Request {
 class CreateTransactionService {
   public async execute({
     title,
-    type,
     value,
+    type,
     category,
   }: Request): Promise<Transaction> {
-    const transactionRepository = getCustomRepository(TransactionRepository);
-
+    const transactionsRepository = getCustomRepository(TransactionsRepository);
     const categoryRepository = getRepository(Category);
 
-    const { total } = await transactionRepository.getBalance();
-
-    if (type === 'outcome' && value > total)
-      throw new AppError('Insufficient founds');
-
-    let transactionCategory = await categoryRepository.findOne({
+    let checkCategoryExist = await categoryRepository.findOne({
       where: { title: category },
     });
 
-    if (!transactionCategory) {
-      transactionCategory = categoryRepository.create({ title: category });
+    if (!checkCategoryExist) {
+      checkCategoryExist = categoryRepository.create({
+        title: category,
+      });
 
-      await categoryRepository.save(transactionCategory);
+      await categoryRepository.save(checkCategoryExist);
     }
 
-    const transaction = transactionRepository.create({
+    if (type === 'outcome') {
+      const { total } = await transactionsRepository.getBalance();
+
+      if (total - value < 0) {
+        throw new AppError(
+          "You can't create an outcome that are greater than your total",
+        );
+      }
+    }
+
+    const transaction = transactionsRepository.create({
       title,
-      type,
       value,
-      category: transactionCategory,
+      type,
+      category: checkCategoryExist,
     });
 
-    console.log('######################');
-    console.log(transaction);
-    console.log('######################');
-
-    await transactionRepository.save(transaction);
+    await transactionsRepository.save(transaction);
 
     return transaction;
   }
