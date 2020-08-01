@@ -1,9 +1,9 @@
 import { getCustomRepository, getRepository } from 'typeorm';
 import AppError from '../errors/AppError';
-import TransactionsRepository from '../repositories/TransactionsRepository';
 
-import Category from '../models/Category';
 import Transaction from '../models/Transaction';
+import Category from '../models/Category';
+import TransactionRepository from '../repositories/TransactionsRepository';
 
 interface Request {
   title: string;
@@ -19,40 +19,35 @@ class CreateTransactionService {
     type,
     category,
   }: Request): Promise<Transaction> {
-    const transactionsRepository = getCustomRepository(TransactionsRepository);
+    const transactionRepository = getCustomRepository(TransactionRepository);
     const categoryRepository = getRepository(Category);
 
-    let checkCategoryExist = await categoryRepository.findOne({
+    const { total } = await transactionRepository.getBalance();
+
+    if (type === 'outcome' && value > total) {
+      throw new AppError('You do not have enough balance');
+    }
+
+    let transactionCategory = await categoryRepository.findOne({
       where: { title: category },
     });
 
-    if (!checkCategoryExist) {
-      checkCategoryExist = categoryRepository.create({
+    if (!transactionCategory) {
+      transactionCategory = categoryRepository.create({
         title: category,
       });
 
-      await categoryRepository.save(checkCategoryExist);
+      await categoryRepository.save(transactionCategory);
     }
 
-    if (type === 'outcome') {
-      const { total } = await transactionsRepository.getBalance();
-
-      if (total - value < 0) {
-        throw new AppError(
-          "You can't create an outcome that are greater than your total",
-        );
-      }
-    }
-
-    const transaction = transactionsRepository.create({
+    const transaction = transactionRepository.create({
       title,
       value,
       type,
-      category: checkCategoryExist,
+      category: transactionCategory,
     });
 
-    await transactionsRepository.save(transaction);
-
+    await transactionRepository.save(transaction);
     return transaction;
   }
 }
